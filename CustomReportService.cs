@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 
 namespace AsyncProgrammingClassLibrary
 {
@@ -20,7 +21,9 @@ namespace AsyncProgrammingClassLibrary
         /// <summary>
         /// post 任務緩衝queue
         /// </summary>
-        private BlockingCollection<PostData> BlockQueue;
+        // private BlockingCollection<PostData> BlockQueue;
+
+        private Channel<PostData> ChannelQueue;
 
         /// <summary>
         /// Constuctor 用來初始化主機列表
@@ -29,7 +32,8 @@ namespace AsyncProgrammingClassLibrary
         public CustomReportService(List<IReportClient> clientList, List<int> maxService)
         {
             ClientList = clientList;
-            BlockQueue = new BlockingCollection<PostData>();
+            //BlockQueue = new BlockingCollection<PostData>();
+            ChannelQueue = Channel.CreateUnbounded<PostData>();
             if (clientList.Count != maxService.Count)
             {
                 throw new Exception();
@@ -55,7 +59,8 @@ namespace AsyncProgrammingClassLibrary
         {
             TaskCompletionSource<CustomReportResponseBody> task = new TaskCompletionSource<CustomReportResponseBody>();
             PostData queueData = new PostData(postBody, task);
-            BlockQueue.Add(queueData);
+            //BlockQueue.Add(queueData);
+            await ChannelQueue.Writer.WriteAsync(queueData);
             Console.WriteLine("Post processed!");
             return await task.Task;
         }
@@ -65,17 +70,29 @@ namespace AsyncProgrammingClassLibrary
         /// </summary>
         /// <param name="client">執行主機</param>
         /// <param name="clientIndex">執行主機編號</param>
-        private void RunConsumer(IReportClient client, int clientIndex)
+        private async void RunConsumer(IReportClient client, int clientIndex)
         {
             PostData data = null;
-            while (!BlockQueue.IsCompleted)
+            //while (!BlockQueue.IsCompleted)
+            //{
+            //    data = BlockQueue.Take();
+            //    if (data != null)
+            //    {
+            //        var result = client.PostCustomReport(data.PostBody);
+            //        data.TaskResult.SetResult(result.Result);
+            //        Console.WriteLine($"Client {clientIndex} Procces completed!");
+            //    }
+            //}
+            while (await ChannelQueue.Reader.WaitToReadAsync())
             {
-                data = BlockQueue.Take();
-                if (data != null)
+                while (ChannelQueue.Reader.TryRead(out data))
                 {
-                    var result = client.PostCustomReport(data.PostBody);
-                    data.TaskResult.SetResult(result.Result);
-                    Console.WriteLine($"Client {clientIndex} Procces completed!");
+                    if (data != null)
+                    {
+                        var result = client.PostCustomReport(data.PostBody);
+                        data.TaskResult.SetResult(result.Result);
+                        Console.WriteLine($"Client {clientIndex} Procces completed!");
+                    }
                 }
             }
         }
@@ -83,9 +100,9 @@ namespace AsyncProgrammingClassLibrary
         /// <summary>
         /// 釋放緩衝區方法
         /// </summary>
-        public void Dispose()
-        {
-            BlockQueue.Dispose();
-        }
+        //public void Dispose()
+        //{
+        //    BlockQueue.Dispose();
+        //}
     }
 }
